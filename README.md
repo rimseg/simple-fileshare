@@ -22,9 +22,15 @@ fileshare/
   lifetime (1–30 days).
 - **Upload files or whole folders** by drag-and-drop or file picker. Folder
   structure is preserved.
-- **Public download page** at `/share/<token>`: enter the password, then
-  download files individually or grab everything as a single ZIP.
-- **Storage quota** with a usage bar and per-upload pre-check.
+- **Drop-mode shares**: opt-in flag at creation that lets the recipient upload
+  files via the public link (same password-protected page). The lifetime
+  timer doesn't start until the first file is uploaded — so the link can be
+  shared in advance and the recipient has time to deposit files.
+- **Public share page** at `/share/<token>`: enter the password, then either
+  download files individually / as a ZIP, or — if drop-mode is enabled —
+  upload more files into the share.
+- **Live storage display** showing real disk usage at the upload directory,
+  with a per-upload pre-check that rejects writes that wouldn't fit on disk.
 - **Automatic cleanup**: hourly cron job removes expired shares and their
   files.
 - **Docker Compose setup** with nginx as a reverse proxy.
@@ -58,8 +64,11 @@ The app is then reachable at <http://localhost:8080>:
 | `JWT_SECRET`         | Secret used to sign session and download tokens — must be set |
 | `MAX_LIFETIME_DAYS`  | Upper bound for share lifetime in days (default 30)           |
 | `MAX_UPLOAD_BYTES`   | Maximum size per file in bytes (default 2 GiB)                |
-| `MAX_STORAGE_BYTES`  | Total storage budget across all shares (default 10 GiB)       |
 | `PORT`               | Backend port inside the container (default 3000)              |
+
+The total storage budget is **not** configured — the backend reports the real
+free space on the filesystem hosting the upload directory (`statfs`) and
+rejects uploads that wouldn't fit.
 
 ## Data & persistence
 
@@ -124,11 +133,12 @@ npm run dev      # http://localhost:5173, /api -> 3000 via Vite proxy
 | DELETE | `/api/admin/users/:id`                     | Admin         | Delete user + all their shares       |
 | GET    | `/api/admin/shares`                        | Admin         | List every share in the system       |
 | DELETE | `/api/admin/shares/:id`                    | Admin         | Delete any share                     |
-| GET    | `/api/share/:token/info`                   | –             | Public link metadata (label, expiry) |
+| GET    | `/api/share/:token/info`                   | –             | Public link metadata (label, expiry, drop flag) |
 | POST   | `/api/share/:token/auth`                   | Password      | Exchange password for download token |
 | GET    | `/api/share/:token/files`                  | Download tok. | List downloadable files              |
 | GET    | `/api/share/:token/files/:fileId/download` | Download tok. | Download one file                    |
 | GET    | `/api/share/:token/zip`                    | Download tok. | Download everything as a ZIP         |
+| POST   | `/api/share/:token/files`                  | Download tok. | Guest upload (drop-mode shares only) |
 
 ## Security notes
 
