@@ -63,10 +63,10 @@ export const api = {
 
   // me (any authenticated user)
   listShares: () => request('/api/me/shares'),
-  createShare: (label, password, lifetime_days) =>
+  createShare: (label, password, lifetime_days, allow_guest_upload = false) =>
     request('/api/me/shares', {
       method: 'POST',
-      body: { label, password, lifetime_days },
+      body: { label, password, lifetime_days, allow_guest_upload },
     }),
   getShare: (id) => request(`/api/me/shares/${id}`),
   deleteShare: (id) => request(`/api/me/shares/${id}`, { method: 'DELETE' }),
@@ -107,4 +107,26 @@ export const api = {
     `/api/share/${token}/files/${fileId}/download?t=${encodeURIComponent(downloadToken)}`,
   zipDownloadUrl: (token, downloadToken) =>
     `/api/share/${token}/zip?t=${encodeURIComponent(downloadToken)}`,
+
+  // public share (guest upload, drop-mode)
+  guestUploadFile: (token, downloadToken, file, relativePath, onProgress) =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/share/${token}/files`);
+      xhr.setRequestHeader('Authorization', `Bearer ${downloadToken}`);
+      xhr.setRequestHeader('X-Relative-Path', encodeURIComponent(relativePath));
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        let parsed = {};
+        try { parsed = JSON.parse(xhr.responseText); } catch {}
+        if (xhr.status >= 200 && xhr.status < 300) resolve(parsed);
+        else reject(new Error(parsed.error || `HTTP ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('network error'));
+      const fd = new FormData();
+      fd.append('file', file);
+      xhr.send(fd);
+    }),
 };

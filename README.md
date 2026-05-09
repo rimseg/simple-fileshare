@@ -1,4 +1,4 @@
-# Fileshare
+# Simple Fileshare
 
 Self-hosted, password-protected file and folder sharing with one-click links and
 configurable lifetime (up to 30 days). Multi-user with role-based access:

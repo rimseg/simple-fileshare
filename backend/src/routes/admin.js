@@ -12,6 +12,7 @@ adminRouter.get('/shares', (req, res) => {
   const rows = db
     .prepare(
       `SELECT s.id, s.token, s.label, s.expires_at, s.created_at, s.download_count,
+              s.allow_guest_upload, s.lifetime_days, s.started_at,
               u.id AS owner_id, u.username AS owner_username,
               COUNT(f.id) AS file_count,
               COALESCE(SUM(f.size_bytes), 0) AS total_bytes

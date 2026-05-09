@@ -52,3 +52,14 @@ function ensureColumn(table, name, ddl) {
   }
 }
 ensureColumn('shares', 'download_count', 'download_count INTEGER NOT NULL DEFAULT 0');
+ensureColumn('shares', 'allow_guest_upload', 'allow_guest_upload INTEGER NOT NULL DEFAULT 0');
+ensureColumn('shares', 'lifetime_days', 'lifetime_days INTEGER');
+ensureColumn('shares', 'started_at', 'started_at INTEGER');
+
+// Backfill lifetime_days/started_at for pre-existing rows (timer was already running for them).
+db.exec(`
+  UPDATE shares
+     SET lifetime_days = MAX(1, CAST(ROUND((expires_at - created_at) / 86400000.0) AS INTEGER))
+   WHERE lifetime_days IS NULL;
+  UPDATE shares SET started_at = created_at WHERE started_at IS NULL AND expires_at > 0;
+`);

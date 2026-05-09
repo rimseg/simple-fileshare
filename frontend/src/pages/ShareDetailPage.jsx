@@ -164,7 +164,9 @@ export default function ShareDetailPage() {
           </button>
         </div>
         <div className="muted">
-          Expires: {formatDate(share.expires_at)}
+          {share.allow_guest_upload && !share.started_at
+            ? `Drop mode · lifetime ${share.lifetime_days} day(s), starts the next time the link is opened`
+            : `Expires: ${formatDate(share.expires_at)}`}
         </div>
         <SharePasswordSection shareId={share.id} />
       </div>

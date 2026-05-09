@@ -60,7 +60,7 @@ export default function AdminSharesPage() {
 
       <div className="panel">
         <div className="bar">
-          <h2 style={{ margin: 0 }}>Active shares ({shares.length})</h2>
+          <h2>Active shares ({shares.length})</h2>
           <span className="muted">
             Total: {totalFiles} file(s) · {formatBytes(totalBytes)}
           </span>
@@ -77,6 +77,9 @@ export default function AdminSharesPage() {
                 <div className="text-bold">
                   {s.label || '(no label)'}
                   <span className="badge" style={{ marginLeft: 8 }}>{s.owner_username}</span>
+                  {s.allow_guest_upload ? (
+                    <span className="badge" style={{ marginLeft: 8 }}>Drop</span>
+                  ) : null}
                 </div>
                 <div className="copyable">
                   <span>{shareUrl(s.token)}</span>
@@ -88,7 +91,10 @@ export default function AdminSharesPage() {
                   </button>
                 </div>
                 <div className="muted">
-                  Expires: {formatDate(s.expires_at)} · {s.file_count} file(s) ·{' '}
+                  {s.allow_guest_upload && !s.started_at
+                    ? `Lifetime: ${s.lifetime_days} day(s), starts the next time the link is opened`
+                    : `Expires: ${formatDate(s.expires_at)}`}
+                  {' '}· {s.file_count} file(s) ·{' '}
                   {formatBytes(Number(s.total_bytes))} · {s.download_count ?? 0} download(s)
                 </div>
               </div>

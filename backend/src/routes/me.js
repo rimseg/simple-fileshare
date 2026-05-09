@@ -42,6 +42,7 @@ meRouter.get('/shares', (req, res) => {
   const rows = db
     .prepare(
       `SELECT s.id, s.token, s.label, s.expires_at, s.created_at, s.download_count,
+              s.allow_guest_upload, s.lifetime_days, s.started_at,
               COUNT(f.id) AS file_count,
               COALESCE(SUM(f.size_bytes), 0) AS total_bytes
        FROM shares s
@@ -55,7 +56,7 @@ meRouter.get('/shares', (req, res) => {
 });
 
 meRouter.post('/shares', createShareLimiter, (req, res) => {
-  const { label, password, lifetime_days } = req.body || {};
+  const { label, password, lifetime_days, allow_guest_upload } = req.body || {};
 
   if (!password || typeof password !== 'string' || password.length < 4) {
     return res.status(400).json({ error: 'password (min 4 chars) required' });
@@ -70,14 +71,22 @@ meRouter.post('/shares', createShareLimiter, (req, res) => {
   const token = nanoid(24);
   const password_hash = bcrypt.hashSync(password, 10);
   const now = Date.now();
-  const expires_at = now + days * DAY_MS;
+  const guestUpload = allow_guest_upload ? 1 : 0;
+  // Drop-mode: timer doesn't run yet — expires_at = 0 sentinel, started_at = NULL.
+  const expires_at = guestUpload ? 0 : now + days * DAY_MS;
+  const started_at = guestUpload ? null : now;
 
   const result = db
     .prepare(
-      `INSERT INTO shares (token, owner_id, label, password_hash, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO shares
+         (token, owner_id, label, password_hash, expires_at, created_at,
+          allow_guest_upload, lifetime_days, started_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(token, req.user.uid, label || null, password_hash, expires_at, now);
+    .run(
+      token, req.user.uid, label || null, password_hash,
+      expires_at, now, guestUpload, days, started_at
+    );
 
   fs.mkdirSync(path.join(UPLOAD_DIR, token), { recursive: true });
 
@@ -87,6 +96,9 @@ meRouter.post('/shares', createShareLimiter, (req, res) => {
     label: label || null,
     expires_at,
     created_at: now,
+    allow_guest_upload: !!guestUpload,
+    lifetime_days: days,
+    started_at,
   });
 });
 
@@ -107,6 +119,9 @@ meRouter.get('/shares/:id', (req, res) => {
       label: share.label,
       expires_at: share.expires_at,
       created_at: share.created_at,
+      allow_guest_upload: !!share.allow_guest_upload,
+      lifetime_days: share.lifetime_days,
+      started_at: share.started_at,
     },
     files,
   });
@@ -150,7 +165,7 @@ meRouter.post(
   (req, res, next) => {
     const share = getOwnShare(Number(req.params.id), req.user.uid);
     if (!share) return res.status(404).json({ error: 'not found' });
-    if (share.expires_at <= Date.now()) {
+    if (share.expires_at > 0 && share.expires_at <= Date.now()) {
       return res.status(410).json({ error: 'share expired' });
     }
 

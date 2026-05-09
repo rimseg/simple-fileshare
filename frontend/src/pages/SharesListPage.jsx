@@ -70,6 +70,9 @@ export default function SharesListPage() {
               <div className="link-row-main stack-sm">
                 <div className="text-bold">
                   <Link to={`/shares/${s.id}`}>{s.label || '(no label)'}</Link>
+                  {s.allow_guest_upload ? (
+                    <span className="badge" style={{ marginLeft: 8 }}>Drop</span>
+                  ) : null}
                 </div>
                 <div className="copyable">
                   <span>{shareUrl(s.token)}</span>
@@ -81,7 +84,10 @@ export default function SharesListPage() {
                   </button>
                 </div>
                 <div className="muted">
-                  Expires: {formatDate(s.expires_at)} · {s.file_count} file(s) ·{' '}
+                  {s.allow_guest_upload && !s.started_at
+                    ? `Lifetime: ${s.lifetime_days} day(s), starts the next time the link is opened`
+                    : `Expires: ${formatDate(s.expires_at)}`}
+                  {' '}· {s.file_count} file(s) ·{' '}
                   {formatBytes(s.total_bytes)} · {s.download_count ?? 0} download(s)
                 </div>
               </div>
@@ -101,6 +107,7 @@ function CreateShareForm({ maxDays, onCreated }) {
   const [label, setLabel] = useState('');
   const [password, setPassword] = useState('');
   const [days, setDays] = useState(7);
+  const [allowGuestUpload, setAllowGuestUpload] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -109,9 +116,10 @@ function CreateShareForm({ maxDays, onCreated }) {
     setBusy(true);
     setError('');
     try {
-      const link = await api.createShare(label || null, password, Number(days));
+      const link = await api.createShare(label || null, password, Number(days), allowGuestUpload);
       setLabel('');
       setPassword('');
+      setAllowGuestUpload(false);
       onCreated(link.id);
     } catch (err) {
       setError(err.message);
@@ -130,7 +138,7 @@ function CreateShareForm({ maxDays, onCreated }) {
         </div>
         <div className="row">
           <div className="field">
-            <label>Password (required for download)</label>
+            <label>Password (required for access)</label>
             <input
               type="password"
               value={password}
@@ -152,6 +160,20 @@ function CreateShareForm({ maxDays, onCreated }) {
             />
           </div>
         </div>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={allowGuestUpload}
+            onChange={(e) => setAllowGuestUpload(e.target.checked)}
+          />
+          <span>Drop mode: recipient may upload files</span>
+        </label>
+        {allowGuestUpload && (
+          <p className="muted hint">
+            The lifetime starts the next time the link is opened after files are uploaded.
+            Until then, the recipient can keep adding files.
+          </p>
+        )}
         <button className="btn" disabled={busy} type="submit">
           {busy ? 'Creating…' : 'Create share & add files'}
         </button>

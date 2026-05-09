@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 
@@ -18,6 +18,7 @@ export default function SharePage() {
   const [authError, setAuthError] = useState('');
   const [downloadToken, setDownloadToken] = useState(null);
   const [files, setFiles] = useState([]);
+  const [canUpload, setCanUpload] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -26,15 +27,22 @@ export default function SharePage() {
       .catch((err) => setLoadError(err.message));
   }, [token]);
 
+  async function refreshFiles(tok) {
+    const filesRes = await api.shareFiles(token, tok);
+    setFiles(filesRes.files);
+    setCanUpload(!!filesRes.can_upload);
+  }
+
   async function onAuth(e) {
     e.preventDefault();
     setAuthError('');
     setBusy(true);
     try {
       const res = await api.shareAuth(token, password);
-      const filesRes = await api.shareFiles(token, res.download_token);
-      setFiles(filesRes.files);
       setDownloadToken(res.download_token);
+      // Merge updated state from auth response — timer may have just started.
+      setInfo((prev) => ({ ...prev, expires_at: res.expires_at, started: res.started }));
+      await refreshFiles(res.download_token);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -58,11 +66,19 @@ export default function SharePage() {
   }
 
   if (!downloadToken) {
+    const dropLink = info.allow_guest_upload && !info.started;
     return (
       <div className="container narrow">
         <div className="panel">
           <h1>{info.label || 'Shared files'}</h1>
-          <p className="muted">Valid until: {new Date(info.expires_at).toLocaleString()}</p>
+          {dropLink ? (
+            <p className="muted">
+              This is a drop link. Enter the password to upload files. The lifetime starts
+              the next time the link is opened.
+            </p>
+          ) : (
+            <p className="muted">Valid until: {new Date(info.expires_at).toLocaleString()}</p>
+          )}
           <form onSubmit={onAuth}>
             <div className="field">
               <label>Password</label>
@@ -90,28 +106,46 @@ export default function SharePage() {
     <div className="container">
       <div className="panel">
         <h1>{info.label || 'Shared files'}</h1>
-        <p className="muted">
-          Valid until: {new Date(info.expires_at).toLocaleString()} ·{' '}
-          {files.length} file(s) · {formatBytes(totalBytes)}
-        </p>
+        {canUpload ? (
+          <p className="muted">
+            Drop link · lifetime: {info.lifetime_days} day(s), starts the next time the link is opened
+          </p>
+        ) : (
+          <p className="muted">
+            Valid until: {new Date(info.expires_at).toLocaleString()} ·{' '}
+            {files.length} file(s) · {formatBytes(totalBytes)}
+          </p>
+        )}
+
+        {canUpload && (
+          <GuestUploader
+            token={token}
+            downloadToken={downloadToken}
+            onUploaded={() => refreshFiles(downloadToken)}
+          />
+        )}
 
         {files.length === 0 ? (
-          <p className="muted">No files have been uploaded to this share yet.</p>
+          !canUpload && <p className="muted">No files have been uploaded to this share yet.</p>
         ) : (
           <>
-            <div>
-              <a className="btn" href={api.zipDownloadUrl(token, downloadToken)}>
-                Download all as ZIP
-              </a>
-            </div>
+            {!canUpload && (
+              <div>
+                <a className="btn" href={api.zipDownloadUrl(token, downloadToken)}>
+                  Download all as ZIP
+                </a>
+              </div>
+            )}
             <ul className="upload-list unbounded">
               {files.map((f) => (
                 <li key={f.id}>
                   <span className="file-name">{f.relative_path}</span>
                   <span className="file-meta">{formatBytes(f.size_bytes)}</span>
-                  <a className="btn ghost" href={api.fileDownloadUrl(token, f.id, downloadToken)}>
-                    Download
-                  </a>
+                  {!canUpload && (
+                    <a className="btn ghost" href={api.fileDownloadUrl(token, f.id, downloadToken)}>
+                      Download
+                    </a>
+                  )}
                 </li>
               ))}
             </ul>
@@ -119,5 +153,157 @@ export default function SharePage() {
         )}
       </div>
     </div>
+  );
+}
+
+function GuestUploader({ token, downloadToken, onUploaded }) {
+  const [pending, setPending] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+
+  async function readEntry(entry, prefix = '') {
+    if (entry.isFile) {
+      return new Promise((resolve, reject) => {
+        entry.file(
+          (file) => resolve([{ file, relativePath: prefix + file.name }]),
+          reject
+        );
+      });
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all = [];
+      const readBatch = () =>
+        new Promise((resolve, reject) => {
+          reader.readEntries(async (entries) => {
+            if (entries.length === 0) return resolve();
+            for (const ent of entries) {
+              const sub = await readEntry(ent, prefix + entry.name + '/');
+              all.push(...sub);
+            }
+            readBatch().then(resolve, reject);
+          }, reject);
+        });
+      await readBatch();
+      return all;
+    }
+    return [];
+  }
+
+  function addPending(items) {
+    setPending((prev) => [
+      ...prev,
+      ...items.map((it) => ({
+        id: crypto.randomUUID(),
+        file: it.file,
+        relativePath: it.relativePath,
+        status: 'pending',
+        progress: 0,
+        error: null,
+      })),
+    ]);
+  }
+
+  function onPickFiles(e) {
+    addPending([...e.target.files].map((f) => ({ file: f, relativePath: f.name })));
+    e.target.value = '';
+  }
+  function onPickFolder(e) {
+    addPending([...e.target.files].map((f) => ({ file: f, relativePath: f.webkitRelativePath || f.name })));
+    e.target.value = '';
+  }
+  async function onDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    const collected = [];
+    if (dt.items && dt.items.length) {
+      for (const item of dt.items) {
+        const entry = item.webkitGetAsEntry?.();
+        if (entry) {
+          const sub = await readEntry(entry);
+          collected.push(...sub);
+        } else if (item.kind === 'file') {
+          const f = item.getAsFile();
+          if (f) collected.push({ file: f, relativePath: f.name });
+        }
+      }
+    } else {
+      for (const f of dt.files) collected.push({ file: f, relativePath: f.name });
+    }
+    if (collected.length) addPending(collected);
+  }
+
+  async function startUpload() {
+    for (const item of pending) {
+      if (item.status !== 'pending') continue;
+      setPending((prev) => prev.map((p) => (p.id === item.id ? { ...p, status: 'uploading' } : p)));
+      try {
+        await api.guestUploadFile(token, downloadToken, item.file, item.relativePath, (p) => {
+          setPending((prev) => prev.map((x) => (x.id === item.id ? { ...x, progress: p } : x)));
+        });
+        setPending((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: 'done', progress: 1 } : x)));
+      } catch (err) {
+        setPending((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: 'error', error: err.message } : x)));
+      }
+    }
+    onUploaded();
+  }
+
+  const pendingCount = pending.filter((p) => p.status === 'pending').length;
+  const uploadingCount = pending.filter((p) => p.status === 'uploading').length;
+
+  return (
+    <>
+      <h2>Upload files</h2>
+      <div
+        className={`dropzone ${dragOver ? 'active' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
+        Drop files or folders here<br />
+        <span className="muted">or</span>
+        <div className="dropzone-buttons">
+          <button className="btn ghost" type="button" onClick={() => fileInputRef.current?.click()}>
+            Choose files
+          </button>
+          <button className="btn ghost" type="button" onClick={() => folderInputRef.current?.click()}>
+            Choose folder
+          </button>
+        </div>
+        <input ref={fileInputRef} type="file" multiple hidden onChange={onPickFiles} />
+        <input ref={folderInputRef} type="file" multiple hidden webkitdirectory="" directory="" onChange={onPickFolder} />
+      </div>
+
+      {pending.length > 0 && (
+        <>
+          <div className="bar">
+            <span className="muted">{pending.length} file(s) selected</span>
+            <button
+              className="btn"
+              disabled={pendingCount === 0 || uploadingCount > 0}
+              onClick={startUpload}
+            >
+              {uploadingCount > 0 ? 'Uploading…' : `Start upload (${pendingCount})`}
+            </button>
+          </div>
+          <ul className="upload-list">
+            {pending.map((it) => (
+              <li key={it.id}>
+                <span className="file-name">{it.relativePath}</span>
+                <span className={`status-${it.status} file-meta`}>
+                  {it.status === 'pending' && formatBytes(it.file.size)}
+                  {it.status === 'uploading' && `${Math.round(it.progress * 100)}%`}
+                  {it.status === 'done' && '✓'}
+                  {it.status === 'error' && (it.error || 'Error')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
   );
 }
