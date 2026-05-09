@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, setSession } from '../api/client.js';
+import PasswordInput from '../components/PasswordInput.jsx';
+import { CopyIcon, PlusIcon, TrashIcon } from '../components/Icons.jsx';
+import { useToast } from '../components/Toast.jsx';
 
 function formatBytes(n) {
   if (!n) return '0 B';
@@ -15,6 +18,7 @@ function shareUrl(token) { return `${window.location.origin}/share/${token}`; }
 export default function ShareDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [share, setShare] = useState(null);
   const [files, setFiles] = useState([]);
   const [error, setError] = useState('');
@@ -37,6 +41,15 @@ export default function ShareDetailPage() {
   }
 
   useEffect(() => { load(); /* eslint-disable-line */ }, [id]);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl(share.token));
+      toast('Link copied to clipboard');
+    } catch {
+      toast('Could not copy link');
+    }
+  }
 
   async function readEntry(entry, prefix = '') {
     if (entry.isFile) {
@@ -145,6 +158,16 @@ export default function ShareDetailPage() {
   const pendingCount = pending.filter((p) => p.status === 'pending').length;
   const uploadingCount = pending.filter((p) => p.status === 'uploading').length;
 
+  function expiresLabel() {
+    if (share.allow_guest_upload && !share.started_at) {
+      return Number(share.lifetime_days) > 0
+        ? `Drop mode · lifetime ${share.lifetime_days} day(s), starts after the first upload`
+        : 'Drop mode · never expires';
+    }
+    if (share.expires_at < 0) return 'Never expires';
+    return `Expires: ${formatDate(share.expires_at)}`;
+  }
+
   return (
     <div className="container">
       <div className="topbar">
@@ -157,22 +180,42 @@ export default function ShareDetailPage() {
         <div className="copyable">
           <span>{shareUrl(share.token)}</span>
           <button
-            className="btn ghost"
-            onClick={() => navigator.clipboard.writeText(shareUrl(share.token))}
+            className="icon-btn"
+            aria-label="Copy link"
+            title="Copy link"
+            onClick={copyLink}
           >
-            Copy
+            <CopyIcon />
           </button>
         </div>
-        <div className="muted">
-          {share.allow_guest_upload && !share.started_at
-            ? `Drop mode · lifetime ${share.lifetime_days} day(s), starts after the first upload`
-            : `Expires: ${formatDate(share.expires_at)}`}
-        </div>
+        <div className="muted">{expiresLabel()}</div>
         <SharePasswordSection shareId={share.id} />
+
+        <h3>Uploaded files ({files.length})</h3>
+        {files.length === 0 ? (
+          <p className="muted">No files uploaded yet.</p>
+        ) : (
+          <ul className="upload-list unbounded">
+            {files.map((f) => (
+              <li key={f.id}>
+                <span className="file-name">{f.relative_path}</span>
+                <span className="file-meta">{formatBytes(f.size_bytes)}</span>
+                <button
+                  className="icon-btn danger"
+                  aria-label="Remove file"
+                  title="Remove file"
+                  onClick={() => removeFile(f.id)}
+                >
+                  <TrashIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="panel">
-        <h2>Add files</h2>
+        <h2 className="heading-with-icon"><PlusIcon /> Add files</h2>
         <div
           className={`dropzone ${dragOver ? 'active' : ''}`}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -220,23 +263,6 @@ export default function ShareDetailPage() {
               ))}
             </ul>
           </>
-        )}
-      </div>
-
-      <div className="panel">
-        <h2>Uploaded files ({files.length})</h2>
-        {files.length === 0 ? (
-          <p className="muted">No files uploaded yet.</p>
-        ) : (
-          <ul className="upload-list unbounded">
-            {files.map((f) => (
-              <li key={f.id}>
-                <span className="file-name">{f.relative_path}</span>
-                <span className="file-meta">{formatBytes(f.size_bytes)}</span>
-                <button className="btn danger" onClick={() => removeFile(f.id)}>Remove</button>
-              </li>
-            ))}
-          </ul>
         )}
       </div>
     </div>
@@ -292,8 +318,7 @@ function SharePasswordSection({ shareId }) {
     <form onSubmit={onSubmit} className="stack-sm">
       <div className="field">
         <label>New password (min. 4 characters)</label>
-        <input
-          type="password"
+        <PasswordInput
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           minLength={4}

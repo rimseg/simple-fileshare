@@ -8,6 +8,31 @@ export const adminRouter = Router();
 
 adminRouter.use(requireAdmin);
 
+function normalizeQuotaInput({ max_lifetime_days, max_storage_bytes }, role) {
+  let lifetime = max_lifetime_days;
+  if (lifetime === undefined || lifetime === null || lifetime === '') {
+    lifetime = role === 'admin' ? 0 : 14;
+  } else {
+    lifetime = Number(lifetime);
+    if (!Number.isFinite(lifetime) || lifetime < 0 || !Number.isInteger(lifetime)) {
+      return { error: 'max_lifetime_days must be a non-negative integer' };
+    }
+  }
+
+  let storage = max_storage_bytes;
+  if (storage === undefined || storage === null || storage === '') {
+    storage = 0;
+  } else {
+    storage = Number(storage);
+    if (!Number.isFinite(storage) || storage < 0) {
+      return { error: 'max_storage_bytes must be a non-negative integer' };
+    }
+    storage = Math.floor(storage);
+  }
+
+  return { lifetime, storage };
+}
+
 adminRouter.get('/shares', (req, res) => {
   const rows = db
     .prepare(
@@ -37,7 +62,11 @@ adminRouter.get('/users', (req, res) => {
   const rows = db
     .prepare(
       `SELECT u.id, u.username, u.role, u.created_at,
-              (SELECT COUNT(*) FROM shares s WHERE s.owner_id = u.id) AS share_count
+              u.max_lifetime_days, u.max_storage_bytes,
+              (SELECT COUNT(*) FROM shares s WHERE s.owner_id = u.id) AS share_count,
+              (SELECT COALESCE(SUM(f.size_bytes), 0)
+                 FROM files f JOIN shares s ON s.id = f.share_id
+                WHERE s.owner_id = u.id) AS used_bytes
        FROM users u
        ORDER BY u.created_at DESC`
     )
@@ -55,18 +84,47 @@ adminRouter.post('/users', (req, res) => {
   }
   const finalRole = role === 'admin' ? 'admin' : 'user';
 
+  const quota = normalizeQuotaInput(req.body || {}, finalRole);
+  if (quota.error) return res.status(400).json({ error: quota.error });
+
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
   if (existing) return res.status(409).json({ error: 'username already exists' });
 
   const hash = bcrypt.hashSync(password, 12);
   const result = db
-    .prepare('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)')
-    .run(username, hash, finalRole, Date.now());
+    .prepare(
+      `INSERT INTO users (username, password_hash, role, created_at,
+                          max_lifetime_days, max_storage_bytes)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(username, hash, finalRole, Date.now(), quota.lifetime, quota.storage);
 
   res.status(201).json({
     id: result.lastInsertRowid,
     username,
     role: finalRole,
+    max_lifetime_days: quota.lifetime,
+    max_storage_bytes: quota.storage,
+  });
+});
+
+adminRouter.put('/users/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'not found' });
+
+  const quota = normalizeQuotaInput(req.body || {}, user.role);
+  if (quota.error) return res.status(400).json({ error: quota.error });
+
+  db.prepare(
+    'UPDATE users SET max_lifetime_days = ?, max_storage_bytes = ? WHERE id = ?'
+  ).run(quota.lifetime, quota.storage, id);
+
+  res.json({
+    id,
+    max_lifetime_days: quota.lifetime,
+    max_storage_bytes: quota.storage,
   });
 });
 

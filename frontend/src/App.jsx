@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage.jsx';
 import AdminUsersPage from './pages/AdminUsersPage.jsx';
 import AdminSharesPage from './pages/AdminSharesPage.jsx';
@@ -6,7 +6,8 @@ import SharesListPage from './pages/SharesListPage.jsx';
 import ShareDetailPage from './pages/ShareDetailPage.jsx';
 import SharePage from './pages/SharePage.jsx';
 import { getSession, setSession } from './api/client.js';
-import { useNavigate } from 'react-router-dom';
+import { useTheme } from './components/ThemeProvider.jsx';
+import { BrandIcon, LogoutIcon, MoonIcon, SunIcon } from './components/Icons.jsx';
 
 function RequireAuth({ children, role }) {
   const session = getSession();
@@ -19,6 +20,7 @@ function NavBar() {
   const session = getSession();
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, toggle } = useTheme();
   if (!session) return null;
   if (location.pathname.startsWith('/share/')) return null;
 
@@ -30,7 +32,9 @@ function NavBar() {
   return (
     <nav className="navbar">
       <div className="nav-inner">
-        <span className="nav-brand">Fileshare</span>
+        <Link to="/shares" className="nav-brand" aria-label="Home">
+          <BrandIcon size={26} />
+        </Link>
         <Link to="/shares" className={location.pathname.startsWith('/shares') ? 'active' : ''}>
           My shares
         </Link>
@@ -45,8 +49,23 @@ function NavBar() {
           </>
         )}
         <span className="nav-spacer" />
-        <span className="muted">{session.user.username} · {session.user.role}</span>
-        <button className="btn ghost" onClick={logout}>Log out</button>
+        <span className="nav-greeting">Hi {session.user.username}</span>
+        <button
+          className="icon-btn"
+          onClick={toggle}
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+        </button>
+        <button
+          className="icon-btn"
+          onClick={logout}
+          aria-label="Log out"
+          title="Log out"
+        >
+          <LogoutIcon />
+        </button>
       </div>
     </nav>
   );

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, setSession } from '../api/client.js';
 import StorageBar from '../components/StorageBar.jsx';
+import { CopyIcon, TrashIcon } from '../components/Icons.jsx';
+import { useToast } from '../components/Toast.jsx';
 
 function formatBytes(n) {
   if (!n) return '0 B';
@@ -12,6 +14,16 @@ function formatBytes(n) {
 }
 function formatDate(ts) { return new Date(ts).toLocaleString(); }
 function shareUrl(token) { return `${window.location.origin}/share/${token}`; }
+function expiresLabel(s) {
+  if (s.allow_guest_upload && !s.started_at) {
+    const d = Number(s.lifetime_days);
+    return d > 0
+      ? `Lifetime: ${d} day(s), starts after the first upload`
+      : `Lifetime: never expires (drop link)`;
+  }
+  if (s.expires_at < 0) return 'Never expires';
+  return `Expires: ${formatDate(s.expires_at)}`;
+}
 
 export default function AdminSharesPage() {
   const [shares, setShares] = useState([]);
@@ -19,6 +31,7 @@ export default function AdminSharesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const toast = useToast();
 
   async function load() {
     setLoading(true);
@@ -45,6 +58,15 @@ export default function AdminSharesPage() {
     if (!confirm(`Delete share "${s.label || '(no label)'}" from ${s.owner_username} and all its files?`)) return;
     await api.adminDeleteShare(s.id);
     load();
+  }
+
+  async function copyLink(token) {
+    try {
+      await navigator.clipboard.writeText(shareUrl(token));
+      toast('Link copied to clipboard');
+    } catch {
+      toast('Could not copy link');
+    }
   }
 
   const totalFiles = shares.reduce((acc, s) => acc + s.file_count, 0);
@@ -84,22 +106,29 @@ export default function AdminSharesPage() {
                 <div className="copyable">
                   <span>{shareUrl(s.token)}</span>
                   <button
-                    className="btn ghost"
-                    onClick={() => navigator.clipboard.writeText(shareUrl(s.token))}
+                    className="icon-btn"
+                    aria-label="Copy link"
+                    title="Copy link"
+                    onClick={() => copyLink(s.token)}
                   >
-                    Copy
+                    <CopyIcon />
                   </button>
                 </div>
                 <div className="muted">
-                  {s.allow_guest_upload && !s.started_at
-                    ? `Lifetime: ${s.lifetime_days} day(s), starts after the first upload`
-                    : `Expires: ${formatDate(s.expires_at)}`}
+                  {expiresLabel(s)}
                   {' '}· {s.file_count} file(s) ·{' '}
                   {formatBytes(Number(s.total_bytes))} · {s.download_count ?? 0} download(s)
                 </div>
               </div>
               <div className="link-row-actions">
-                <button className="btn danger" onClick={() => onDelete(s)}>Delete</button>
+                <button
+                  className="icon-btn danger"
+                  aria-label="Delete share"
+                  title="Delete share"
+                  onClick={() => onDelete(s)}
+                >
+                  <TrashIcon />
+                </button>
               </div>
             </li>
           ))}

@@ -7,7 +7,7 @@ import archiver from 'archiver';
 import { db } from '../utils/db.js';
 import { signDownloadToken, verifyDownloadToken } from '../middleware/auth.js';
 import { shareAuthLimiter } from '../middleware/rateLimit.js';
-import { getStorageStats } from '../utils/storage.js';
+import { getRemainingForOwner } from '../utils/storage.js';
 
 export const shareRouter = Router();
 
@@ -34,10 +34,12 @@ function shareFileCount(shareId) {
 }
 
 export function startTimerIfNeeded(share) {
-  if (share.started_at != null || share.expires_at > 0) return share;
+  // Already started (drop share with timer running) or expires_at sentinel set (-1 = infinite).
+  if (share.started_at != null || share.expires_at !== 0) return share;
   const now = Date.now();
-  const days = share.lifetime_days || 1;
-  const expires_at = now + days * DAY_MS;
+  const days = Number(share.lifetime_days);
+  // lifetime_days = 0 on a drop share means it never expires once started.
+  const expires_at = days > 0 ? now + days * DAY_MS : -1;
   db.prepare('UPDATE shares SET started_at = ?, expires_at = ? WHERE id = ?')
     .run(now, expires_at, share.id);
   return { ...share, started_at: now, expires_at };
@@ -192,8 +194,8 @@ shareRouter.post(
 
     const contentLength = Number(req.headers['content-length'] || 0);
     if (contentLength > 0) {
-      const stats = getStorageStats();
-      if (stats.used_bytes + contentLength > stats.max_bytes) {
+      const remaining = getRemainingForOwner(req.share.owner_id);
+      if (contentLength > remaining) {
         return res.status(507).json({ error: 'Storage quota reached — upload rejected' });
       }
     }

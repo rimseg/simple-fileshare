@@ -13,8 +13,9 @@ export function deleteShareArtifacts(shareId, token) {
 
 export function purgeExpired() {
   const now = Date.now();
+  // expires_at <= 0 is a sentinel: 0 = drop-mode timer not yet started, -1 = never expires.
   const expired = db
-    .prepare('SELECT id, token FROM shares WHERE expires_at <= ?')
+    .prepare('SELECT id, token FROM shares WHERE expires_at > 0 AND expires_at <= ?')
     .all(now);
 
   for (const s of expired) {

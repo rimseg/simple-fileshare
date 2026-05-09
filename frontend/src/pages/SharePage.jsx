@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
+import PasswordInput from '../components/PasswordInput.jsx';
+import { DownloadIcon, PlusIcon } from '../components/Icons.jsx';
 
 function formatBytes(n) {
   if (!n) return '0 B';
@@ -76,15 +78,16 @@ export default function SharePage() {
               This is a drop link. Enter the password to upload files. The lifetime starts
               after the first file is uploaded.
             </p>
+          ) : info.expires_at < 0 ? (
+            <p className="muted">Never expires</p>
           ) : (
             <p className="muted">Valid until: {new Date(info.expires_at).toLocaleString()}</p>
           )}
           <form onSubmit={onAuth}>
             <div className="field">
               <label>Password</label>
-              <input
+              <PasswordInput
                 autoFocus
-                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -111,50 +114,61 @@ export default function SharePage() {
           <p className="muted">
             Drop link · lifetime: {info.lifetime_days} day(s), starts after the first upload
           </p>
+        ) : info.expires_at < 0 ? (
+          <p className="muted">
+            Never expires · {files.length} file(s) · {formatBytes(totalBytes)}
+          </p>
         ) : (
           <p className="muted">
             Valid until: {new Date(info.expires_at).toLocaleString()} ·{' '}
             {files.length} file(s) · {formatBytes(totalBytes)}
           </p>
         )}
+
+        {files.length > 0 ? (
+          <>
+            <div className="bar">
+              <h3 style={{ margin: 0 }}>Uploaded files ({files.length})</h3>
+              <a
+                className="btn"
+                href={api.zipDownloadUrl(token, downloadToken)}
+                title="Download all as ZIP"
+              >
+                <DownloadIcon /> <span style={{ marginLeft: 6 }}>ZIP</span>
+              </a>
+            </div>
+            <ul className="upload-list unbounded">
+              {files.map((f) => (
+                <li key={f.id}>
+                  <span className="file-name">{f.relative_path}</span>
+                  <span className="file-meta">{formatBytes(f.size_bytes)}</span>
+                  <a
+                    className="icon-btn primary"
+                    href={api.fileDownloadUrl(token, f.id, downloadToken)}
+                    aria-label={`Download ${f.relative_path}`}
+                    title="Download"
+                  >
+                    <DownloadIcon />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          !canUpload && (
+            <p className="muted">No files have been uploaded to this share yet.</p>
+          )
+        )}
       </div>
 
       {canUpload && (
         <div className="panel">
-          <h2>Add files</h2>
+          <h2 className="heading-with-icon"><PlusIcon /> Add files</h2>
           <GuestUploader
             token={token}
             downloadToken={downloadToken}
             onUploaded={() => refreshFiles(downloadToken)}
           />
-        </div>
-      )}
-
-      {files.length > 0 && (
-        <div className="panel">
-          <h2>Uploaded files ({files.length})</h2>
-          <div>
-            <a className="btn" href={api.zipDownloadUrl(token, downloadToken)}>
-              Download all as ZIP
-            </a>
-          </div>
-          <ul className="upload-list unbounded">
-            {files.map((f) => (
-              <li key={f.id}>
-                <span className="file-name">{f.relative_path}</span>
-                <span className="file-meta">{formatBytes(f.size_bytes)}</span>
-                <a className="btn ghost" href={api.fileDownloadUrl(token, f.id, downloadToken)}>
-                  Download
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {!canUpload && files.length === 0 && (
-        <div className="panel">
-          <p className="muted">No files have been uploaded to this share yet.</p>
         </div>
       )}
     </div>

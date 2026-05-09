@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, setSession, getSession } from '../api/client.js';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -44,8 +45,7 @@ export default function LoginPage() {
           </div>
           <div className="field">
             <label>Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

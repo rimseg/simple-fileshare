@@ -56,10 +56,15 @@ ensureColumn('shares', 'allow_guest_upload', 'allow_guest_upload INTEGER NOT NUL
 ensureColumn('shares', 'lifetime_days', 'lifetime_days INTEGER');
 ensureColumn('shares', 'started_at', 'started_at INTEGER');
 
+// Per-user quotas. 0 = no limit (admins create with infinite lifetime; users see global storage).
+ensureColumn('users', 'max_lifetime_days', 'max_lifetime_days INTEGER NOT NULL DEFAULT 14');
+ensureColumn('users', 'max_storage_bytes', 'max_storage_bytes INTEGER NOT NULL DEFAULT 0');
+
 // Backfill lifetime_days/started_at for pre-existing rows (timer was already running for them).
 db.exec(`
   UPDATE shares
      SET lifetime_days = MAX(1, CAST(ROUND((expires_at - created_at) / 86400000.0) AS INTEGER))
    WHERE lifetime_days IS NULL;
   UPDATE shares SET started_at = created_at WHERE started_at IS NULL AND expires_at > 0;
+  UPDATE users SET max_lifetime_days = 0 WHERE role = 'admin' AND max_lifetime_days = 14;
 `);

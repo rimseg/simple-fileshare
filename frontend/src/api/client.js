@@ -50,8 +50,10 @@ export const api = {
 
   // admin
   listUsers: () => request('/api/admin/users'),
-  createUser: (username, password, role) =>
-    request('/api/admin/users', { method: 'POST', body: { username, password, role } }),
+  createUser: (body) =>
+    request('/api/admin/users', { method: 'POST', body }),
+  updateUser: (id, body) =>
+    request(`/api/admin/users/${id}`, { method: 'PUT', body }),
   deleteUser: (id) => request(`/api/admin/users/${id}`, { method: 'DELETE' }),
   setUserPassword: (id, password) =>
     request(`/api/admin/users/${id}/password`, { method: 'PUT', body: { password } }),
@@ -62,6 +64,7 @@ export const api = {
   getStorage: () => request('/api/storage'),
 
   // me (any authenticated user)
+  getProfile: () => request('/api/me/profile'),
   listShares: () => request('/api/me/shares'),
   createShare: (label, password, lifetime_days, allow_guest_upload = false) =>
     request('/api/me/shares', {

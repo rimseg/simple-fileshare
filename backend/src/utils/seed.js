@@ -18,7 +18,8 @@ export function seedAdmin() {
 
   const hash = bcrypt.hashSync(password, 12);
   db.prepare(
-    'INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)'
+    `INSERT INTO users (username, password_hash, role, created_at, max_lifetime_days, max_storage_bytes)
+     VALUES (?, ?, ?, ?, 0, 0)`
   ).run(username, hash, 'admin', Date.now());
 
   console.log(`[seed] created admin user "${username}"`);

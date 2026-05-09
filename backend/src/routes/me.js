@@ -7,7 +7,7 @@ import { nanoid } from 'nanoid';
 import { db } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { deleteShareArtifacts } from '../utils/cleanup.js';
-import { getStorageStats } from '../utils/storage.js';
+import { getRemainingForOwner } from '../utils/storage.js';
 import { createShareLimiter } from '../middleware/rateLimit.js';
 import { startTimerIfNeeded } from './share.js';
 
@@ -15,7 +15,6 @@ export const meRouter = Router();
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './data/uploads';
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 2 * 1024 * 1024 * 1024);
-const MAX_LIFETIME_DAYS = Number(process.env.MAX_LIFETIME_DAYS || 30);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -39,7 +38,26 @@ function getOwnShare(shareId, ownerId) {
     .get(shareId, ownerId);
 }
 
+function getCurrentUserRow(uid) {
+  return db
+    .prepare('SELECT id, username, role, max_lifetime_days, max_storage_bytes FROM users WHERE id = ?')
+    .get(uid);
+}
+
+meRouter.get('/profile', (req, res) => {
+  const u = getCurrentUserRow(req.user.uid);
+  if (!u) return res.status(404).json({ error: 'not found' });
+  res.json({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    max_lifetime_days: u.max_lifetime_days,
+    max_storage_bytes: u.max_storage_bytes,
+  });
+});
+
 meRouter.get('/shares', (req, res) => {
+  const u = getCurrentUserRow(req.user.uid);
   const rows = db
     .prepare(
       `SELECT s.id, s.token, s.label, s.expires_at, s.created_at, s.download_count,
@@ -53,7 +71,7 @@ meRouter.get('/shares', (req, res) => {
        ORDER BY s.created_at DESC`
     )
     .all(req.user.uid);
-  res.json({ shares: rows, max_lifetime_days: MAX_LIFETIME_DAYS });
+  res.json({ shares: rows, max_lifetime_days: u?.max_lifetime_days ?? 14 });
 });
 
 meRouter.post('/shares', createShareLimiter, (req, res) => {
@@ -62,20 +80,37 @@ meRouter.post('/shares', createShareLimiter, (req, res) => {
   if (!password || typeof password !== 'string' || password.length < 4) {
     return res.status(400).json({ error: 'password (min 4 chars) required' });
   }
+  const u = getCurrentUserRow(req.user.uid);
+  const userMax = Number(u?.max_lifetime_days ?? 14);
   const days = Number(lifetime_days);
-  if (!Number.isFinite(days) || days <= 0 || days > MAX_LIFETIME_DAYS) {
-    return res
-      .status(400)
-      .json({ error: `lifetime_days must be between 1 and ${MAX_LIFETIME_DAYS}` });
+  if (!Number.isFinite(days) || days < 0) {
+    return res.status(400).json({ error: 'lifetime_days must be a non-negative integer' });
+  }
+  // days = 0 means "never expires" — only allowed when the user has no upper bound (max=0).
+  if (days === 0 && userMax !== 0) {
+    return res.status(400).json({ error: `lifetime_days must be between 1 and ${userMax}` });
+  }
+  if (userMax > 0 && days > userMax) {
+    return res.status(400).json({ error: `lifetime_days must be between 1 and ${userMax}` });
   }
 
   const token = nanoid(24);
   const password_hash = bcrypt.hashSync(password, 10);
   const now = Date.now();
   const guestUpload = allow_guest_upload ? 1 : 0;
-  // Drop-mode: timer doesn't run yet — expires_at = 0 sentinel, started_at = NULL.
-  const expires_at = guestUpload ? 0 : now + days * DAY_MS;
-  const started_at = guestUpload ? null : now;
+  // expires_at sentinels: -1 = never expires, 0 = drop-mode timer not started, >0 = real timestamp.
+  let expires_at;
+  let started_at;
+  if (guestUpload) {
+    expires_at = 0;
+    started_at = null;
+  } else if (days === 0) {
+    expires_at = -1;
+    started_at = now;
+  } else {
+    expires_at = now + days * DAY_MS;
+    started_at = now;
+  }
 
   const result = db
     .prepare(
@@ -174,8 +209,8 @@ meRouter.post(
     // multipart envelope, so this errs on the conservative side).
     const contentLength = Number(req.headers['content-length'] || 0);
     if (contentLength > 0) {
-      const stats = getStorageStats();
-      if (stats.used_bytes + contentLength > stats.max_bytes) {
+      const remaining = getRemainingForOwner(req.user.uid);
+      if (contentLength > remaining) {
         return res.status(507).json({
           error: 'Storage quota reached — upload rejected',
         });

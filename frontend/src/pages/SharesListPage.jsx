@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, setSession } from '../api/client.js';
 import StorageBar from '../components/StorageBar.jsx';
+import PasswordInput from '../components/PasswordInput.jsx';
+import { CopyIcon, TrashIcon } from '../components/Icons.jsx';
+import { useToast } from '../components/Toast.jsx';
 
 function formatBytes(n) {
   if (!n) return '0 B';
@@ -12,14 +15,25 @@ function formatBytes(n) {
 }
 function formatDate(ts) { return new Date(ts).toLocaleString(); }
 function shareUrl(token) { return `${window.location.origin}/share/${token}`; }
+function expiresLabel(s) {
+  if (s.allow_guest_upload && !s.started_at) {
+    const d = Number(s.lifetime_days);
+    return d > 0
+      ? `Lifetime: ${d} day(s), starts after the first upload`
+      : `Lifetime: never expires, timer-free drop link`;
+  }
+  if (s.expires_at < 0) return 'Never expires';
+  return `Expires: ${formatDate(s.expires_at)}`;
+}
 
 export default function SharesListPage() {
   const [shares, setShares] = useState([]);
   const [storage, setStorage] = useState(null);
-  const [maxDays, setMaxDays] = useState(30);
+  const [maxDays, setMaxDays] = useState(14);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const toast = useToast();
 
   async function load() {
     setLoading(true);
@@ -47,6 +61,15 @@ export default function SharesListPage() {
     if (!confirm('Delete this share and all its files?')) return;
     await api.deleteShare(s.id);
     load();
+  }
+
+  async function copyLink(token) {
+    try {
+      await navigator.clipboard.writeText(shareUrl(token));
+      toast('Link copied to clipboard');
+    } catch {
+      toast('Could not copy link');
+    }
   }
 
   return (
@@ -77,23 +100,30 @@ export default function SharesListPage() {
                 <div className="copyable">
                   <span>{shareUrl(s.token)}</span>
                   <button
-                    className="btn ghost"
-                    onClick={() => navigator.clipboard.writeText(shareUrl(s.token))}
+                    className="icon-btn"
+                    aria-label="Copy link"
+                    title="Copy link"
+                    onClick={() => copyLink(s.token)}
                   >
-                    Copy
+                    <CopyIcon />
                   </button>
                 </div>
                 <div className="muted">
-                  {s.allow_guest_upload && !s.started_at
-                    ? `Lifetime: ${s.lifetime_days} day(s), starts after the first upload`
-                    : `Expires: ${formatDate(s.expires_at)}`}
+                  {expiresLabel(s)}
                   {' '}· {s.file_count} file(s) ·{' '}
                   {formatBytes(s.total_bytes)} · {s.download_count ?? 0} download(s)
                 </div>
               </div>
               <div className="link-row-actions">
                 <Link to={`/shares/${s.id}`} className="btn ghost">Edit</Link>
-                <button className="btn danger" onClick={() => onDelete(s)}>Delete</button>
+                <button
+                  className="icon-btn danger"
+                  aria-label="Delete share"
+                  title="Delete share"
+                  onClick={() => onDelete(s)}
+                >
+                  <TrashIcon />
+                </button>
               </div>
             </li>
           ))}
@@ -104,9 +134,10 @@ export default function SharesListPage() {
 }
 
 function CreateShareForm({ maxDays, onCreated }) {
+  const unlimited = Number(maxDays) === 0;
   const [label, setLabel] = useState('');
   const [password, setPassword] = useState('');
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(() => (unlimited ? 7 : Math.min(7, Number(maxDays) || 7)));
   const [allowGuestUpload, setAllowGuestUpload] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -139,8 +170,7 @@ function CreateShareForm({ maxDays, onCreated }) {
         <div className="row">
           <div className="field">
             <label>Password (required for access)</label>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -149,11 +179,13 @@ function CreateShareForm({ maxDays, onCreated }) {
             />
           </div>
           <div className="field">
-            <label>Lifetime (days, max. {maxDays})</label>
+            <label>
+              Lifetime (days{unlimited ? ', 0 = never expires' : `, max. ${maxDays}`})
+            </label>
             <input
               type="number"
-              min={1}
-              max={maxDays}
+              min={0}
+              max={unlimited ? undefined : maxDays}
               value={days}
               onChange={(e) => setDays(e.target.value)}
               required

@@ -19,7 +19,7 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, max_lifetime_days: Number(process.env.MAX_LIFETIME_DAYS || 30) });
+  res.json({ ok: true });
 });
 
 app.use('/api/auth', authRouter);
