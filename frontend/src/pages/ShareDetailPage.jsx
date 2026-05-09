@@ -165,7 +165,7 @@ export default function ShareDetailPage() {
         </div>
         <div className="muted">
           {share.allow_guest_upload && !share.started_at
-            ? `Drop mode · lifetime ${share.lifetime_days} day(s), starts the next time the link is opened`
+            ? `Drop mode · lifetime ${share.lifetime_days} day(s), starts after the first upload`
             : `Expires: ${formatDate(share.expires_at)}`}
         </div>
         <SharePasswordSection shareId={share.id} />
@@ -195,6 +195,7 @@ export default function ShareDetailPage() {
 
         {pending.length > 0 && (
           <>
+            <h3>Upload progress</h3>
             <div className="bar">
               <span className="muted">{pending.length} file(s) selected</span>
               <button

@@ -85,7 +85,7 @@ export default function SharesListPage() {
                 </div>
                 <div className="muted">
                   {s.allow_guest_upload && !s.started_at
-                    ? `Lifetime: ${s.lifetime_days} day(s), starts the next time the link is opened`
+                    ? `Lifetime: ${s.lifetime_days} day(s), starts after the first upload`
                     : `Expires: ${formatDate(s.expires_at)}`}
                   {' '}· {s.file_count} file(s) ·{' '}
                   {formatBytes(s.total_bytes)} · {s.download_count ?? 0} download(s)
@@ -170,8 +170,8 @@ function CreateShareForm({ maxDays, onCreated }) {
         </label>
         {allowGuestUpload && (
           <p className="muted hint">
-            The lifetime starts the next time the link is opened after files are uploaded.
-            Until then, the recipient can keep adding files.
+            The lifetime starts after the first file is uploaded. Recipients can keep
+            adding files at any time until the share expires.
           </p>
         )}
         <button className="btn" disabled={busy} type="submit">

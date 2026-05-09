@@ -92,7 +92,7 @@ export default function AdminSharesPage() {
                 </div>
                 <div className="muted">
                   {s.allow_guest_upload && !s.started_at
-                    ? `Lifetime: ${s.lifetime_days} day(s), starts the next time the link is opened`
+                    ? `Lifetime: ${s.lifetime_days} day(s), starts after the first upload`
                     : `Expires: ${formatDate(s.expires_at)}`}
                   {' '}· {s.file_count} file(s) ·{' '}
                   {formatBytes(Number(s.total_bytes))} · {s.download_count ?? 0} download(s)

@@ -33,7 +33,7 @@ function shareFileCount(shareId) {
   return Number(row?.n || 0);
 }
 
-function startTimerIfNeeded(share) {
+export function startTimerIfNeeded(share) {
   if (share.started_at != null || share.expires_at > 0) return share;
   const now = Date.now();
   const days = share.lifetime_days || 1;
@@ -85,20 +85,13 @@ shareRouter.post('/:token/auth', shareAuthLimiter, (req, res) => {
   }
 
   const fileCount = shareFileCount(share.id);
-  // Drop-mode: files have been uploaded — seal the dropbox and start the timer.
-  let active = share;
-  if (share.allow_guest_upload && share.started_at == null && fileCount > 0) {
-    active = startTimerIfNeeded(share);
-  }
-  const canUpload = !!active.allow_guest_upload && active.started_at == null;
-
   res.json({
-    download_token: signDownloadToken(active.id),
-    label: active.label,
-    expires_at: active.expires_at,
-    allow_guest_upload: !!active.allow_guest_upload,
-    started: active.started_at != null,
-    can_upload: canUpload,
+    download_token: signDownloadToken(share.id),
+    label: share.label,
+    expires_at: share.expires_at,
+    allow_guest_upload: !!share.allow_guest_upload,
+    started: share.started_at != null,
+    can_upload: !!share.allow_guest_upload,
     has_files: fileCount > 0,
   });
 });
@@ -114,7 +107,7 @@ shareRouter.get('/:token/files', requireDownloadAuth, (req, res) => {
     expires_at: req.share.expires_at,
     allow_guest_upload: !!req.share.allow_guest_upload,
     started: req.share.started_at != null,
-    can_upload: !!req.share.allow_guest_upload && req.share.started_at == null,
+    can_upload: !!req.share.allow_guest_upload,
     files,
   });
 });
@@ -128,7 +121,6 @@ shareRouter.get('/:token/files/:fileId/download', requireDownloadAuth, (req, res
   const abs = path.join(UPLOAD_DIR, file.stored_path);
   if (!fs.existsSync(abs)) return res.status(404).json({ error: 'file missing on disk' });
 
-  startTimerIfNeeded(req.share);
   db.prepare('UPDATE shares SET download_count = download_count + 1 WHERE id = ?')
     .run(req.share.id);
 
@@ -142,7 +134,6 @@ shareRouter.get('/:token/zip', requireDownloadAuth, (req, res) => {
     .all(req.share.id);
   if (files.length === 0) return res.status(404).json({ error: 'no files' });
 
-  startTimerIfNeeded(req.share);
   db.prepare('UPDATE shares SET download_count = download_count + 1 WHERE id = ?')
     .run(req.share.id);
 
@@ -198,9 +189,6 @@ shareRouter.post(
     if (!req.share.allow_guest_upload) {
       return res.status(403).json({ error: 'guest upload disabled for this share' });
     }
-    if (req.share.started_at != null) {
-      return res.status(409).json({ error: 'share is already active — uploads sealed' });
-    }
 
     const contentLength = Number(req.headers['content-length'] || 0);
     if (contentLength > 0) {
@@ -238,6 +226,9 @@ shareRouter.post(
          VALUES (?, ?, ?, ?, ?)`
       )
       .run(req.share.id, req.sanitizedRelative, stored, req.file.size, Date.now());
+
+    // First guest upload starts the lifetime timer (idempotent).
+    startTimerIfNeeded(req.share);
 
     res.status(201).json({
       id: result.lastInsertRowid,

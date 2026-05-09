@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { deleteShareArtifacts } from '../utils/cleanup.js';
 import { getStorageStats } from '../utils/storage.js';
 import { createShareLimiter } from '../middleware/rateLimit.js';
+import { startTimerIfNeeded } from './share.js';
 
 export const meRouter = Router();
 
@@ -211,6 +212,9 @@ meRouter.post(
          VALUES (?, ?, ?, ?, ?)`
       )
       .run(req.share.id, req.sanitizedRelative, stored, req.file.size, Date.now());
+
+    // Drop shares: first upload starts the timer (no-op for normal shares).
+    startTimerIfNeeded(req.share);
 
     res.status(201).json({
       id: result.lastInsertRowid,

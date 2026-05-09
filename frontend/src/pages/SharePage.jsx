@@ -31,6 +31,8 @@ export default function SharePage() {
     const filesRes = await api.shareFiles(token, tok);
     setFiles(filesRes.files);
     setCanUpload(!!filesRes.can_upload);
+    // Pick up freshly-set expires_at after the first upload triggers the timer.
+    setInfo((prev) => ({ ...prev, expires_at: filesRes.expires_at, started: filesRes.started }));
   }
 
   async function onAuth(e) {
@@ -40,8 +42,6 @@ export default function SharePage() {
     try {
       const res = await api.shareAuth(token, password);
       setDownloadToken(res.download_token);
-      // Merge updated state from auth response — timer may have just started.
-      setInfo((prev) => ({ ...prev, expires_at: res.expires_at, started: res.started }));
       await refreshFiles(res.download_token);
     } catch (err) {
       setAuthError(err.message);
@@ -74,7 +74,7 @@ export default function SharePage() {
           {dropLink ? (
             <p className="muted">
               This is a drop link. Enter the password to upload files. The lifetime starts
-              the next time the link is opened.
+              after the first file is uploaded.
             </p>
           ) : (
             <p className="muted">Valid until: {new Date(info.expires_at).toLocaleString()}</p>
@@ -101,14 +101,15 @@ export default function SharePage() {
   }
 
   const totalBytes = files.reduce((acc, f) => acc + f.size_bytes, 0);
+  const timerNotStarted = canUpload && !info.started;
 
   return (
     <div className="container">
       <div className="panel">
         <h1>{info.label || 'Shared files'}</h1>
-        {canUpload ? (
+        {timerNotStarted ? (
           <p className="muted">
-            Drop link · lifetime: {info.lifetime_days} day(s), starts the next time the link is opened
+            Drop link · lifetime: {info.lifetime_days} day(s), starts after the first upload
           </p>
         ) : (
           <p className="muted">
@@ -116,42 +117,46 @@ export default function SharePage() {
             {files.length} file(s) · {formatBytes(totalBytes)}
           </p>
         )}
+      </div>
 
-        {canUpload && (
+      {canUpload && (
+        <div className="panel">
+          <h2>Add files</h2>
           <GuestUploader
             token={token}
             downloadToken={downloadToken}
             onUploaded={() => refreshFiles(downloadToken)}
           />
-        )}
+        </div>
+      )}
 
-        {files.length === 0 ? (
-          !canUpload && <p className="muted">No files have been uploaded to this share yet.</p>
-        ) : (
-          <>
-            {!canUpload && (
-              <div>
-                <a className="btn" href={api.zipDownloadUrl(token, downloadToken)}>
-                  Download all as ZIP
+      {files.length > 0 && (
+        <div className="panel">
+          <h2>Uploaded files ({files.length})</h2>
+          <div>
+            <a className="btn" href={api.zipDownloadUrl(token, downloadToken)}>
+              Download all as ZIP
+            </a>
+          </div>
+          <ul className="upload-list unbounded">
+            {files.map((f) => (
+              <li key={f.id}>
+                <span className="file-name">{f.relative_path}</span>
+                <span className="file-meta">{formatBytes(f.size_bytes)}</span>
+                <a className="btn ghost" href={api.fileDownloadUrl(token, f.id, downloadToken)}>
+                  Download
                 </a>
-              </div>
-            )}
-            <ul className="upload-list unbounded">
-              {files.map((f) => (
-                <li key={f.id}>
-                  <span className="file-name">{f.relative_path}</span>
-                  <span className="file-meta">{formatBytes(f.size_bytes)}</span>
-                  {!canUpload && (
-                    <a className="btn ghost" href={api.fileDownloadUrl(token, f.id, downloadToken)}>
-                      Download
-                    </a>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!canUpload && files.length === 0 && (
+        <div className="panel">
+          <p className="muted">No files have been uploaded to this share yet.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -256,7 +261,6 @@ function GuestUploader({ token, downloadToken, onUploaded }) {
 
   return (
     <>
-      <h2>Upload files</h2>
       <div
         className={`dropzone ${dragOver ? 'active' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -279,6 +283,7 @@ function GuestUploader({ token, downloadToken, onUploaded }) {
 
       {pending.length > 0 && (
         <>
+          <h3>Upload progress</h3>
           <div className="bar">
             <span className="muted">{pending.length} file(s) selected</span>
             <button
