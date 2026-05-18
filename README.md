@@ -110,21 +110,60 @@ lifetime.
 
 ## nginx
 
-Two configs are included:
+The stack ships with **two nginx layers**, and the difference matters when
+you deploy:
 
-- `nginx/proxy.conf` – used by the `proxy` container in Compose; also serves
-  as a template for your own setups.
-- `nginx/host-example.conf` – example for a host nginx instance with TLS
-  termination, pointing at the Compose stack on `127.0.0.1:8080`.
+```
+internet ──TLS──> host nginx ──HTTP──> 127.0.0.1:8080
+                                            │
+                                            ▼
+                               fileshare-proxy container
+                                  (splits / vs /api/)
+                                       │       │
+                                       ▼       ▼
+                                   frontend  backend
+```
 
-Important when allowing large uploads:
+| File                       | Where it runs            | What it does                                       |
+|----------------------------|--------------------------|----------------------------------------------------|
+| `nginx/proxy.conf`         | Inside the Compose stack | Routes `/api/*` to the backend, everything else to the SPA. Talks to `backend:3000` / `frontend:80` via Docker DNS. |
+| `nginx/host-example.conf`  | On the host (Ubuntu etc.)| Terminates TLS for your public domain and forwards everything to `127.0.0.1:8080`. |
+
+The Compose stack only publishes the in-container proxy on
+`127.0.0.1:8080` (loopback only) — your host nginx is what speaks to the
+outside world.
+
+### Deploying behind a real domain
+
+1. Point an A/AAAA record at the server.
+2. Copy `nginx/host-example.conf` to
+   `/etc/nginx/sites-available/<your-domain>` and replace the placeholder
+   hostname.
+3. `sudo ln -s /etc/nginx/sites-available/<your-domain> /etc/nginx/sites-enabled/`
+4. `sudo certbot --nginx -d <your-domain>` to obtain a cert and let
+   Certbot fill in the `ssl_*` lines / add an HTTP→HTTPS redirect.
+5. `sudo nginx -t && sudo systemctl reload nginx`.
+
+### Common pitfall
+
+Don't put `proxy_pass http://backend:3000` (or `frontend:80`) in the host
+nginx config. Those names only resolve inside the Docker network. The host
+nginx must always point at `http://127.0.0.1:8080`; the in-container proxy
+handles the API/SPA split from there.
+
+### Allowing large uploads
+
+Three places need to agree, otherwise the smallest one will reject the
+request:
 
 ```nginx
-client_max_body_size 2g;
+client_max_body_size 2g;        # set in BOTH host nginx and proxy.conf
 proxy_request_buffering off;
 proxy_read_timeout 1h;
 proxy_send_timeout 1h;
 ```
+
+…and `MAX_UPLOAD_BYTES` in `backend/.env` must be at least as large.
 
 ## Development (without Docker)
 
