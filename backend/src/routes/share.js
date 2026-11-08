@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { db } from '../utils/db.js';
 import { signDownloadToken, verifyDownloadToken } from '../middleware/auth.js';
 import { shareAuthLimiter } from '../middleware/rateLimit.js';
@@ -143,7 +143,7 @@ shareRouter.get('/:token/zip', requireDownloadAuth, (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
 
-  const archive = archiver('zip', { zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 6 } });
   archive.on('warning', (err) => console.warn('[zip] warning:', err));
   archive.on('error', (err) => {
     console.error('[zip] error:', err);
