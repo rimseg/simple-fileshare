@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 
 # better-sqlite3 needs build tools at install time
@@ -6,10 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-RUN npm install --omit=dev --build-from-source
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --build-from-source
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
